@@ -76,18 +76,13 @@ async def init_db_seeds(db: AsyncSession):
         db.add(admin_user)
         await db.flush()
 
-    # 2. Exercises Initial Seed
-    exercise_objs = {}
-    for ex_data in INITIAL_EXERCISES:
-        res_ex = await db.execute(select(Exercise).where(Exercise.name == ex_data["name"]))
-        existing_ex = res_ex.scalars().first()
-        if not existing_ex:
-            new_ex = Exercise(**ex_data, is_custom=False)
-            db.add(new_ex)
-            await db.flush()
-            exercise_objs[ex_data["name"]] = new_ex
-        else:
-            exercise_objs[ex_data["name"]] = existing_ex
+    # 2. Exercises Initial Seed via Dynamic API Fetching
+    from app.api.exercises import enrich_exercises_catalog
+    await enrich_exercises_catalog(db=db, current_user=admin_user)
+
+    res_all_ex = await db.execute(select(Exercise))
+    all_ex_list = res_all_ex.scalars().all()
+    exercise_objs = {ex.name: ex for ex in all_ex_list}
 
     # 3. Predefined Programs Seed (e.g. Cardio Evolution & Push Day)
     res_tpl = await db.execute(select(WorkoutTemplate).where(WorkoutTemplate.title == "Programme Cardio Évolution"))
@@ -102,10 +97,10 @@ async def init_db_seeds(db: AsyncSession):
         db.add(cardio_tpl)
         await db.flush()
 
-        if "Course à Pied - Cardio Évolution" in exercise_objs:
+        if "Course à Pied - HIIT & Tapis" in exercise_objs:
             db.add(WorkoutTemplateItem(
                 template_id=cardio_tpl.id,
-                exercise_id=exercise_objs["Course à Pied - Cardio Évolution"].id,
+                exercise_id=exercise_objs["Course à Pied - HIIT & Tapis"].id,
                 order=1,
                 target_sets=3,
                 target_duration_seconds=600, # 10 mins per interval
@@ -124,10 +119,10 @@ async def init_db_seeds(db: AsyncSession):
         db.add(push_tpl)
         await db.flush()
 
-        if "Développé Couché" in exercise_objs:
+        if "Développé Couché Barre" in exercise_objs:
             db.add(WorkoutTemplateItem(
                 template_id=push_tpl.id,
-                exercise_id=exercise_objs["Développé Couché"].id,
+                exercise_id=exercise_objs["Développé Couché Barre"].id,
                 order=1,
                 target_sets=4,
                 target_reps=10,

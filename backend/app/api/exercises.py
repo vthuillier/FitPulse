@@ -1,6 +1,5 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -11,38 +10,59 @@ from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/exercises", tags=["Exercises"])
 
-# Reserve fallback dataset if API is slow or rate-limited
-EXTERNAL_EXERCISE_POOL = [
-    {"name": "Développé Incliné Halteres", "category": "Musculation", "muscles": ["chest", "shoulders"], "rest": 90, "desc": "Développé haut des pectoraux aux haltères."},
-    {"name": "Dips (Poids de Corps / Lesté)", "category": "Musculation", "muscles": ["triceps", "chest"], "rest": 90, "desc": "Exercice de poussée aux barres parallèles."},
-    {"name": "Soulevé de Terre (Deadlift)", "category": "Musculation", "muscles": ["back_lats", "glutes", "hamstrings"], "rest": 120, "desc": "Exercice polyarticulaire complet pour la chaîne postérieure."},
-    {"name": "Tirage Horizontal (Seated Row)", "category": "Musculation", "muscles": ["back_lats", "biceps"], "rest": 75, "desc": "Ciblage de l'épaisseur du dos."},
-    {"name": "Élévations Latérales Haltères", "category": "Musculation", "muscles": ["shoulders"], "rest": 60, "desc": "Isolation du faisceau moyen du deltoïde."},
-    {"name": "Fentes Avant Haltères", "category": "Musculation", "muscles": ["quadriceps", "glutes"], "rest": 75, "desc": "Renforcement unilatéral des cuisses."},
-    {"name": "Curl Biceps Barre EZ", "category": "Musculation", "muscles": ["biceps"], "rest": 60, "desc": "Isolation classique des biceps à la barre coudée."},
-    {"name": "Extension Triceps Poulie Haute", "category": "Musculation", "muscles": ["triceps"], "rest": 60, "desc": "Isolation de la portion externe et médiane du triceps."},
-    {"name": "Leg Extension", "category": "Musculation", "muscles": ["quadriceps"], "rest": 60, "desc": "Isolation des quadriceps à la machine."},
-    {"name": "Crunch Abdominal Poulie", "category": "Musculation", "muscles": ["abs"], "rest": 45, "desc": "Renforcement sous tension continue des abdos."}
-]
+import httpx
 
-MUSCLE_MAPPING = {
-    "chest": "chest",
-    "pectoralis major": "chest",
-    "biceps": "biceps",
-    "biceps brachii": "biceps",
-    "triceps": "triceps",
-    "triceps brachii": "triceps",
-    "shoulders": "shoulders",
-    "deltoid": "shoulders",
-    "quadriceps": "quadriceps",
-    "abs": "abs",
-    "abdominals": "abs",
-    "back": "back_lats",
-    "latissimus dorsi": "back_lats",
-    "glutes": "glutes",
-    "hamstrings": "hamstrings",
-    "calves": "calves"
+# Map Wger muscle IDs (https://wger.de/api/v2/muscle/) to our anatomical
+# visualizer keys. Serratus anterior (3) and Brachialis (13) have no
+# dedicated shape in BodyVisualizer, folded into the nearest visible region.
+WGER_MUSCLE_MAP = {
+    1: "biceps",      # Biceps brachii
+    2: "shoulders",   # Anterior deltoid
+    3: "chest",       # Serratus anterior (no dedicated shape)
+    4: "chest",       # Pectoralis major
+    5: "triceps",     # Triceps brachii
+    6: "abs",         # Rectus abdominis
+    7: "calves",      # Gastrocnemius
+    8: "glutes",      # Gluteus maximus
+    9: "trapezius",   # Trapezius
+    10: "quadriceps", # Quadriceps femoris
+    11: "hamstrings", # Biceps femoris
+    12: "back_lats",  # Latissimus dorsi
+    13: "biceps",     # Brachialis (no dedicated shape)
+    14: "obliques",   # Obliquus externus abdominis
+    15: "calves",     # Soleus
 }
+
+def map_wger_muscles(muscles_list):
+    mapped = set()
+    for m in muscles_list:
+        m_id = m.get("id") if isinstance(m, dict) else m
+        m_name = (m.get("name") if isinstance(m, dict) else str(m)).lower()
+        
+        if m_id in WGER_MUSCLE_MAP:
+            mapped.add(WGER_MUSCLE_MAP[m_id])
+        elif "biceps" in m_name:
+            mapped.add("biceps")
+        elif "triceps" in m_name:
+            mapped.add("triceps")
+        elif "chest" in m_name or "pectoral" in m_name:
+            mapped.add("chest")
+        elif "back" in m_name or "latissimus" in m_name or "trapezius" in m_name:
+            mapped.add("back_lats")
+        elif "shoulder" in m_name or "deltoid" in m_name:
+            mapped.add("shoulders")
+        elif "quadriceps" in m_name or "thigh" in m_name:
+            mapped.add("quadriceps")
+        elif "glute" in m_name:
+            mapped.add("glutes")
+        elif "hamstring" in m_name:
+            mapped.add("hamstrings")
+        elif "abs" in m_name or "abdominis" in m_name:
+            mapped.add("abs")
+        elif "calf" in m_name or "calves" in m_name or "gastrocnemius" in m_name:
+            mapped.add("calves")
+    
+    return list(mapped) if mapped else ["chest"]
 
 @router.get("/", response_model=List[ExerciseResponse])
 async def get_exercises(
@@ -83,107 +103,143 @@ async def create_exercise(
     await db.refresh(exercise)
     return exercise
 
-@router.post("/import-wger", response_model=List[ExerciseResponse])
-async def import_exercises_from_wger_api(
-    limit: int = 15,
+@router.post("/enrich-catalog", response_model=List[ExerciseResponse])
+async def enrich_exercises_catalog(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Importation garantie d'exercices à partir de l'API externe Wger avec fallback intelligent.
+    Interroge dynamiquement l'API Wger publique pour importer en masse les exercices.
+    Loggue chaque étape pour le débogage.
     """
-    imported_exercises = []
+    print("🚀 [ENRICH CATALOG] Début de l'enrichissement via API externe Wger...", flush=True)
+    added_exercises = []
+    
+    headers = {
+        "User-Agent": "FitPulsePro/2.0 (Sports Performance Tracker; +http://localhost)",
+        "Accept": "application/json"
+    }
 
-    try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.get("https://wger.de/api/v2/exerciseinfo/?limit=30")
-            if resp.status_code == 200:
-                data = resp.json()
-                results = data.get("results", [])
+    base_url = "https://wger.de/api/v2/exerciseinfo/?limit=50"
 
-                for item in results:
-                    # Find English or first translation
-                    name = None
-                    description = ""
-                    
-                    if "name" in item and item["name"]:
-                        name = item["name"]
-                    elif "category" in item and isinstance(item.get("category"), dict):
-                        name = f"Exercice {item['category'].get('name', 'Fitness')} #{item.get('id')}"
+    async with httpx.AsyncClient(timeout=20.0, headers=headers, follow_redirects=True) as client:
+        current_page_url = base_url
+        pages_processed = 0
+        max_pages = 5
 
-                    if not name:
-                        continue
-
-                    # Clean name
-                    name = name.strip()
-
-                    # Check existence in DB
-                    res_ex = await db.execute(select(Exercise).where(Exercise.name == name))
-                    if res_ex.scalars().first():
-                        continue
-
-                    raw_desc = item.get("description") or ""
-                    description = raw_desc.replace("<p>", "").replace("</p>", "").replace("<br>", "").strip()
-                    if not description:
-                        description = f"Exercice de renforcement importé depuis Wger API (ID #{item.get('id')})"
-
-                    muscles_list = []
-                    for m in item.get("muscles", []):
-                        m_name = m.get("name_en", "").lower() or m.get("name", "").lower()
-                        mapped = MUSCLE_MAPPING.get(m_name, "chest")
-                        if mapped not in muscles_list:
-                            muscles_list.append(mapped)
-
-                    if not muscles_list:
-                        muscles_list = ["chest"]
-
-                    category_name = "Musculation"
-                    if "category" in item and isinstance(item["category"], dict):
-                        category_name = item["category"].get("name", "Musculation")
-
-                    new_ex = Exercise(
-                        name=name,
-                        description=description[:300],
-                        category=category_name,
-                        metric_type=ExerciseMetricType.REPS_WEIGHT,
-                        default_rest_seconds=60,
-                        primary_muscles=muscles_list,
-                        secondary_muscles=[],
-                        is_custom=True,
-                        created_by_id=current_user.id
-                    )
-                    db.add(new_ex)
-                    imported_exercises.append(new_ex)
-
-                    if len(imported_exercises) >= limit:
-                        break
-
-    except Exception:
-        pass # Fallback pool triggered below if imported_exercises is empty
-
-    # Fallback Guarantee: If external API yielded no new items, use external exercise pool
-    if len(imported_exercises) == 0:
-        for pool_item in EXTERNAL_EXERCISE_POOL:
-            res_ex = await db.execute(select(Exercise).where(Exercise.name == pool_item["name"]))
-            if not res_ex.scalars().first():
-                new_ex = Exercise(
-                    name=pool_item["name"],
-                    description=pool_item["desc"],
-                    category=pool_item["category"],
-                    metric_type=ExerciseMetricType.REPS_WEIGHT,
-                    default_rest_seconds=pool_item["rest"],
-                    primary_muscles=pool_item["muscles"],
-                    secondary_muscles=[],
-                    is_custom=True,
-                    created_by_id=current_user.id
-                )
-                db.add(new_ex)
-                imported_exercises.append(new_ex)
-                if len(imported_exercises) >= 5:
+        while current_page_url and pages_processed < max_pages:
+            try:
+                print(f"📡 [ENRICH CATALOG] Interrogation de: {current_page_url}", flush=True)
+                response = await client.get(current_page_url)
+                print(f"📩 [ENRICH CATALOG] Status Code: {response.status_code}", flush=True)
+                
+                if response.status_code != 200:
+                    print(f"❌ [ENRICH CATALOG] Échec de la requête: {response.text[:200]}", flush=True)
                     break
 
-    await db.commit()
-    for ex in imported_exercises:
-        await db.refresh(ex)
+                data = response.json()
+                results = data.get("results", [])
+                print(f"📦 [ENRICH CATALOG] Page {pages_processed + 1}: {len(results)} éléments bruts reçus", flush=True)
 
-    return imported_exercises
+                if not results:
+                    break
+
+                # Batch-check which names already exist in one query instead
+                # of one SELECT per item (avoids N+1 across up to 50 items/page).
+                page_names = []
+                for item in results:
+                    translations = item.get("translations", [])
+                    name = None
+                    if isinstance(translations, list) and translations:
+                        for t in translations:
+                            if isinstance(t, dict) and t.get("name") and t.get("language") in [12, 2]:
+                                name = t.get("name")
+                                break
+                        if not name and isinstance(translations[0], dict):
+                            name = translations[0].get("name")
+                    if not name and isinstance(item.get("name"), str):
+                        name = item.get("name")
+                    if name and isinstance(name, str) and len(name.strip()) >= 2:
+                        page_names.append(name.strip())
+
+                existing_names = set()
+                if page_names:
+                    res_existing = await db.execute(select(Exercise.name).where(Exercise.name.in_(page_names)))
+                    existing_names = {n for (n,) in res_existing.all()}
+
+                for item in results:
+                    name = None
+                    desc = ""
+
+                    # Extract name & description from translations (Language preference: FR=12, EN=2, DE=1)
+                    translations = item.get("translations", [])
+                    if isinstance(translations, list) and translations:
+                        for t in translations:
+                            if isinstance(t, dict) and t.get("name"):
+                                # If we find French or English preferred
+                                if t.get("language") in [12, 2]:
+                                    name = t.get("name")
+                                    desc = t.get("description", "") or ""
+                                    break
+                        if not name and isinstance(translations[0], dict):
+                            name = translations[0].get("name")
+                            desc = translations[0].get("description", "") or ""
+                    
+                    if not name and isinstance(item.get("name"), str):
+                        name = item.get("name")
+
+                    if not name or not isinstance(name, str) or len(name.strip()) < 2:
+                        continue
+
+                    name = name.strip()
+
+                    # Clean HTML description tags
+                    import re
+                    clean_desc = re.sub('<[^<]+?>', '', desc).strip()
+                    if not clean_desc:
+                        clean_desc = f"Exercice {name} importé via Wger API."
+
+                    # Category mapping
+                    cat_info = item.get("category", {})
+                    cat_name = cat_info.get("name", "Musculation") if isinstance(cat_info, dict) else "Musculation"
+
+                    # Muscle mapping
+                    muscles_prim = map_wger_muscles(item.get("muscles", []))
+                    muscles_sec = map_wger_muscles(item.get("muscles_secondary", []))
+
+                    if name not in existing_names:
+                        new_ex = Exercise(
+                            name=name,
+                            description=clean_desc[:255],
+                            category=cat_name,
+                            metric_type=ExerciseMetricType.REPS_WEIGHT,
+                            default_rest_seconds=60,
+                            primary_muscles=muscles_prim,
+                            secondary_muscles=muscles_sec,
+                            is_custom=False,
+                            created_by_id=current_user.id
+                        )
+                        db.add(new_ex)
+                        added_exercises.append(new_ex)
+                        existing_names.add(name)
+
+                current_page_url = data.get("next")
+                pages_processed += 1
+
+            except Exception as e:
+                print(f"❌ [ENRICH CATALOG] Erreur lors du traitement ({current_page_url}): {e}", flush=True)
+                break
+
+    if added_exercises:
+        await db.commit()
+        print(f"💾 [ENRICH CATALOG] {len(added_exercises)} nouveaux exercices enregistrés en BDD !", flush=True)
+
+    # Récupérer la liste totale des exercices en base
+    res_all = await db.execute(select(Exercise).order_by(Exercise.name))
+    all_exercises = res_all.scalars().all()
+    print(f"📊 [ENRICH CATALOG] Nombre total d'exercices dans la BDD: {len(all_exercises)}", flush=True)
+    return all_exercises
+
+
+
+

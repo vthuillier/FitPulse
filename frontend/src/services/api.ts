@@ -1,4 +1,4 @@
-const API_URL = "http://localhost:8000/api/v1";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
 
 export function getAuthHeaders() {
   const token = localStorage.getItem("fitpulse_token");
@@ -51,14 +51,14 @@ export async function createExerciseApi(exercise: any) {
   return res.json();
 }
 
-export async function importExercisesFromWgerApi() {
-  const res = await fetch(`${API_URL}/exercises/import-wger`, {
+export async function enrichCatalogApi() {
+  const res = await fetch(`${API_URL}/exercises/enrich-catalog`, {
     method: "POST",
     headers: getAuthHeaders()
   });
   if (!res.ok) {
     const err = await res.json();
-    throw new Error(err.detail || "Erreur lors de l'import depuis l'API Wger");
+    throw new Error(err.detail || "Erreur lors de l'enrichissement du catalogue");
   }
   return res.json();
 }
