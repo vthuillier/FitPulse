@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fitpulse_db
+    environment:
+      POSTGRES_DB: fitpulse_db
+      POSTGRES_USER: fitpulse_user
+      POSTGRES_PASSWORD: fitpulse_secure_password_2026
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fitpulse_user -d fitpulse_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: fitpulse_backend
+    environment:
+      DATABASE_URL: postgresql://fitpulse_user:fitpulse_secure_password_2026@postgres:5432/fitpulse_db
+      SECRET_KEY: SUPER_SECURE_SECRET_KEY_PRODUCTION_FITPULSE_2026
+      FIRST_ADMIN_EMAIL: admin@fitpulse.com
+      FIRST_ADMIN_PASSWORD: AdminSecure2026!
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/Dockerfile.frontend
+    container_name: fitpulse_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
