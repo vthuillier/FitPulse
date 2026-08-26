@@ -3,14 +3,14 @@ import confetti from 'canvas-confetti';
 import {
   Activity, Dumbbell, Calendar, LineChart, Users, Shield,
   Play, Plus, Check, Flame, Award, Globe, Timer, Calculator, TrendingUp,
-  Sparkles, Copy, X, Trash2
+  Sparkles, Copy, X, Trash2, ArrowUp, ArrowDown, Pencil
 } from 'lucide-react';
 import { BodyVisualizer } from './components/BodyVisualizer';
-import { 
-  loginApi, fetchCurrentProfile, fetchExercises, createExerciseApi, enrichCatalogApi,
-  fetchTemplates, createTemplateApi, fetchWeeklySummary, fetchLastWorkoutByTemplate,
-  saveWorkoutSessionApi, fetchMeasurements, createMeasurementApi, 
-  fetchCommunityFeed, fetchAllUsersAdmin, createUserAdminApi 
+import {
+  loginApi, fetchCurrentProfile, fetchExercises, createExerciseApi, deleteExerciseApi, enrichCatalogApi,
+  fetchTemplates, createTemplateApi, updateTemplateApi, deleteTemplateApi, fetchWeeklySummary, fetchLastWorkoutByTemplate,
+  saveWorkoutSessionApi, fetchMeasurements, createMeasurementApi,
+  fetchCommunityFeed, fetchAllUsersAdmin, createUserAdminApi
 } from './services/api';
 
 const VALID_MUSCLE_KEYS = [
@@ -63,6 +63,75 @@ function normalizeAiExercise(raw: any): AiParsedExercise {
     metric_type: 'reps_weight',
     default_rest_seconds: Number.isFinite(raw?.default_rest_seconds) ? raw.default_rest_seconds : 60
   };
+}
+
+interface TemplateItemDraft {
+  exercise_id: number | null;
+  exercise_name: string;
+  new_exercise?: AiParsedExercise | null;
+  target_sets: number;
+  target_reps: number;
+  target_weight_kg: number;
+  target_duration_seconds: number;
+  rest_seconds: number;
+}
+
+function makeTplItemDraft(exercise_id: number | null, exercise_name: string): TemplateItemDraft {
+  return {
+    exercise_id,
+    exercise_name,
+    new_exercise: null,
+    target_sets: 3,
+    target_reps: 10,
+    target_weight_kg: 0,
+    target_duration_seconds: 0,
+    rest_seconds: 60
+  };
+}
+
+function buildAiTemplatePrompt(exercisesList: any[]): string {
+  const names = exercisesList.map(ex => ex.name).join(', ');
+  return `Génère une séance d'entraînement au format JSON strict.
+
+Réponds UNIQUEMENT avec un objet JSON (pas de texte autour, pas de markdown), de cette forme exacte :
+{
+  "title": "string",
+  "description": "string",
+  "items": [
+    {
+      "exercise_name": "string (nom EXACT d'un exercice de la liste ci-dessous si il existe)",
+      "target_sets": 3,
+      "target_reps": 10,
+      "target_weight_kg": 0,
+      "target_duration_seconds": 0,
+      "rest_seconds": 60
+    }
+  ]
+}
+
+Si l'exercice que tu veux utiliser n'existe PAS dans la liste ci-dessous, tu peux en créer un nouveau : remplace "exercise_name" par un champ "new_exercise" avec cette forme :
+{
+  "new_exercise": {
+    "name": "string",
+    "description": "string",
+    "category": "Musculation" ou "Cardio",
+    "primary_muscles": ["clé1", "clé2"],
+    "secondary_muscles": ["clé1"],
+    "default_rest_seconds": 60
+  },
+  "target_sets": 3,
+  "target_reps": 10,
+  "target_weight_kg": 0,
+  "target_duration_seconds": 0,
+  "rest_seconds": 60
+}
+
+Les clés muscles valides pour "new_exercise" (n'utilise QUE celles-ci) : ${VALID_MUSCLE_KEYS.join(', ')}.
+
+Utilise en priorité les noms d'exercices déjà présents dans cette liste : ${names}.
+
+Décris ici la séance que tu veux (ex: "séance push 5 exercices avec repos courts") :
+`;
 }
 
 export default function App() {
@@ -124,7 +193,23 @@ export default function App() {
   // New Template Form State
   const [newTplTitle, setNewTplTitle] = useState('');
   const [newTplDesc, setNewTplDesc] = useState('');
-  const [newTplSelectedEx, setNewTplSelectedEx] = useState<number[]>([]);
+  const [newTplItems, setNewTplItems] = useState<TemplateItemDraft[]>([]);
+  const [newTplAddExId, setNewTplAddExId] = useState<number | ''>('');
+  const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null);
+  const [tplMuscleFilter, setTplMuscleFilter] = useState<string | null>(null);
+
+  // Exercise catalog muscle filter (Base d'Exercices tab)
+  const [exerciseMuscleFilter, setExerciseMuscleFilter] = useState<string | null>(null);
+
+  // AI Template (Séance) Generation State
+  const [tplAiModalOpen, setTplAiModalOpen] = useState(false);
+  const [tplAiPrompt, setTplAiPrompt] = useState('');
+  const [tplAiJsonInput, setTplAiJsonInput] = useState('');
+  const [tplAiParseError, setTplAiParseError] = useState('');
+  const [tplAiTitle, setTplAiTitle] = useState('');
+  const [tplAiDesc, setTplAiDesc] = useState('');
+  const [tplAiItems, setTplAiItems] = useState<TemplateItemDraft[]>([]);
+  const [tplAiCreating, setTplAiCreating] = useState(false);
 
   // New Measurement State
   const [measWeight, setMeasWeight] = useState('');
@@ -346,6 +431,17 @@ export default function App() {
     }
   };
 
+  const handleDeleteExercise = async (ex: any) => {
+    if (!confirm(`Supprimer l'exercice "${ex.name}" ? Cette action est irréversible.`)) return;
+    try {
+      await deleteExerciseApi(ex.id);
+      if (newExName === ex.name) setNewExName('');
+      refreshDashboard();
+    } catch (err: any) {
+      alert("Erreur : " + err.message);
+    }
+  };
+
   const handleOpenAiModal = () => {
     setAiPrompt(buildAiExercisePrompt());
     setAiJsonInput('');
@@ -408,31 +504,212 @@ export default function App() {
     }
   };
 
+  const handleAddTplItem = () => {
+    if (newTplAddExId === '') return;
+    const ex = exercisesList.find(e => e.id === newTplAddExId);
+    if (!ex) return;
+    setNewTplItems(prev => [...prev, makeTplItemDraft(ex.id, ex.name)]);
+    setNewTplAddExId('');
+  };
+
+  const handleUpdateTplItem = (index: number, patch: Partial<TemplateItemDraft>) => {
+    setNewTplItems(prev => prev.map((it, i) => i === index ? { ...it, ...patch } : it));
+  };
+
+  const handleRemoveTplItem = (index: number) => {
+    setNewTplItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleMoveTplItem = (index: number, direction: -1 | 1) => {
+    setNewTplItems(prev => {
+      const target = index + direction;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
   const handleCreateTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const itemsPayload = newTplSelectedEx.map((exId, idx) => ({
-        exercise_id: exId,
+      const itemsPayload = newTplItems.map((it, idx) => ({
+        exercise_id: it.exercise_id,
         order: idx + 1,
-        target_sets: 3,
-        target_reps: 10,
-        target_weight_kg: 0,
-        rest_seconds: 60
+        target_sets: it.target_sets,
+        target_reps: it.target_reps,
+        target_weight_kg: it.target_weight_kg,
+        target_duration_seconds: it.target_duration_seconds,
+        rest_seconds: it.rest_seconds
       }));
-
-      await createTemplateApi({
+      const payload = {
         title: newTplTitle,
         description: newTplDesc,
         items: itemsPayload
-      });
+      };
 
-      alert("Pré-séance créée avec succès !");
+      if (editingTemplateId !== null) {
+        await updateTemplateApi(editingTemplateId, payload);
+        alert("Pré-séance modifiée avec succès !");
+      } else {
+        await createTemplateApi(payload);
+        alert("Pré-séance créée avec succès !");
+      }
+
       setNewTplTitle('');
       setNewTplDesc('');
-      setNewTplSelectedEx([]);
+      setNewTplItems([]);
+      setEditingTemplateId(null);
+      refreshDashboard();
+    } catch (err: any) {
+      alert("Erreur : " + err.message);
+    }
+  };
+
+  const handleEditTemplate = (tpl: any) => {
+    setEditingTemplateId(tpl.id);
+    setNewTplTitle(tpl.title);
+    setNewTplDesc(tpl.description || '');
+    setNewTplItems(
+      (tpl.template_items || [])
+        .slice()
+        .sort((a: any, b: any) => a.order - b.order)
+        .map((it: any) => ({
+          exercise_id: it.exercise.id,
+          exercise_name: it.exercise.name,
+          target_sets: it.target_sets,
+          target_reps: it.target_reps,
+          target_weight_kg: it.target_weight_kg,
+          target_duration_seconds: it.target_duration_seconds,
+          rest_seconds: it.rest_seconds
+        }))
+    );
+  };
+
+  const handleCancelEditTemplate = () => {
+    setEditingTemplateId(null);
+    setNewTplTitle('');
+    setNewTplDesc('');
+    setNewTplItems([]);
+  };
+
+  const handleDeleteTemplate = async (tpl: any) => {
+    if (!confirm(`Supprimer la pré-séance "${tpl.title}" ? Cette action est irréversible.`)) return;
+    try {
+      await deleteTemplateApi(tpl.id);
+      if (editingTemplateId === tpl.id) handleCancelEditTemplate();
+      refreshDashboard();
+    } catch (err: any) {
+      alert("Erreur : " + err.message);
+    }
+  };
+
+  const handleOpenTplAiModal = () => {
+    setTplAiPrompt(buildAiTemplatePrompt(exercisesList));
+    setTplAiJsonInput('');
+    setTplAiParseError('');
+    setTplAiTitle('');
+    setTplAiDesc('');
+    setTplAiItems([]);
+    setTplAiModalOpen(true);
+  };
+
+  const handleCopyTplAiPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(tplAiPrompt);
+    } catch {
+      // Clipboard indisponible : copie manuelle par l'utilisateur.
+    }
+  };
+
+  const handleParseTplAiJson = () => {
+    setTplAiParseError('');
+    try {
+      const parsed = JSON.parse(tplAiJsonInput);
+      const rawItems = Array.isArray(parsed?.items) ? parsed.items : [];
+      if (rawItems.length === 0) {
+        setTplAiParseError('Le JSON ne contient aucun item de séance.');
+        return;
+      }
+      const items: TemplateItemDraft[] = rawItems.map((raw: any) => {
+        const name = typeof raw?.exercise_name === 'string' ? raw.exercise_name : '';
+        const matched = name ? exercisesList.find(e => e.name.toLowerCase() === name.toLowerCase()) : null;
+        const rawNewEx = raw?.new_exercise;
+        const newExercise = (!matched && rawNewEx && typeof rawNewEx === 'object')
+          ? normalizeAiExercise(rawNewEx)
+          : null;
+        return {
+          exercise_id: matched ? matched.id : null,
+          exercise_name: matched ? matched.name : (name || newExercise?.name || ''),
+          new_exercise: newExercise,
+          target_sets: Number.isFinite(raw?.target_sets) ? raw.target_sets : 3,
+          target_reps: Number.isFinite(raw?.target_reps) ? raw.target_reps : 10,
+          target_weight_kg: Number.isFinite(raw?.target_weight_kg) ? raw.target_weight_kg : 0,
+          target_duration_seconds: Number.isFinite(raw?.target_duration_seconds) ? raw.target_duration_seconds : 0,
+          rest_seconds: Number.isFinite(raw?.rest_seconds) ? raw.rest_seconds : 60
+        };
+      });
+      setTplAiTitle(typeof parsed?.title === 'string' ? parsed.title : '');
+      setTplAiDesc(typeof parsed?.description === 'string' ? parsed.description : '');
+      setTplAiItems(items);
+    } catch (err: any) {
+      setTplAiParseError('JSON invalide : ' + err.message);
+    }
+  };
+
+  const handleUpdateTplAiItem = (index: number, patch: Partial<TemplateItemDraft>) => {
+    setTplAiItems(prev => prev.map((it, i) => i === index ? { ...it, ...patch } : it));
+  };
+
+  const handleRemoveTplAiItem = (index: number) => {
+    setTplAiItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUpdateTplAiNewExercise = (index: number, patch: Partial<AiParsedExercise>) => {
+    setTplAiItems(prev => prev.map((it, i) => {
+      if (i !== index || !it.new_exercise) return it;
+      const updated = { ...it.new_exercise, ...patch };
+      return { ...it, new_exercise: updated, exercise_name: updated.name };
+    }));
+  };
+
+  const tplAiHasUnresolved = tplAiItems.some(it => it.exercise_id === null && !it.new_exercise?.name.trim());
+
+  const handleCreateTplFromAi = async () => {
+    if (tplAiHasUnresolved) return;
+    setTplAiCreating(true);
+    try {
+      const resolvedItems: TemplateItemDraft[] = [];
+      for (const it of tplAiItems) {
+        if (it.exercise_id !== null) {
+          resolvedItems.push(it);
+          continue;
+        }
+        const created = await createExerciseApi(it.new_exercise);
+        resolvedItems.push({ ...it, exercise_id: created.id });
+      }
+
+      const itemsPayload = resolvedItems.map((it, idx) => ({
+        exercise_id: it.exercise_id,
+        order: idx + 1,
+        target_sets: it.target_sets,
+        target_reps: it.target_reps,
+        target_weight_kg: it.target_weight_kg,
+        target_duration_seconds: it.target_duration_seconds,
+        rest_seconds: it.rest_seconds
+      }));
+      await createTemplateApi({
+        title: tplAiTitle || 'Séance générée par IA',
+        description: tplAiDesc,
+        items: itemsPayload
+      });
+      alert("Pré-séance créée avec succès !");
+      setTplAiModalOpen(false);
       refreshDashboard();
     } catch (err: any) {
       alert("Erreur création modèle : " + err.message);
+    } finally {
+      setTplAiCreating(false);
     }
   };
 
@@ -526,6 +803,13 @@ export default function App() {
   }
 
   const activeMuscles = activeTemplate?.template_items?.flatMap((i: any) => i.exercise.primary_muscles) || [];
+
+  const getTemplateMuscles = (tpl: any) => {
+    const items = tpl.template_items || [];
+    const primary = Array.from(new Set(items.flatMap((i: any) => i.exercise?.primary_muscles || []))) as string[];
+    const secondary = Array.from(new Set(items.flatMap((i: any) => i.exercise?.secondary_muscles || []))).filter(m => !primary.includes(m as string)) as string[];
+    return { primary, secondary };
+  };
 
   return (
     <div className="app-container">
@@ -687,14 +971,157 @@ export default function App() {
         {/* TAB 2: PRE-SEANCES */}
         {activeTab === 'templates' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            <header>
+            <header style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
               <h1 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Pré-séances & Modèles</h1>
+              <button className="btn btn-secondary" onClick={handleOpenTplAiModal}>
+                <Sparkles size={18} /> Générer via IA
+              </button>
             </header>
+
+            {tplAiModalOpen && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+                <div className="glass-panel" style={{ maxWidth: '640px', width: '100%', maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Sparkles size={18} /> Générer une séance via IA
+                    </h3>
+                    <button className="btn btn-secondary" onClick={() => setTplAiModalOpen(false)}>
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      1. Copie ce prompt, complète-le, colle-le dans ton IA préférée (Claude, ChatGPT...)
+                    </label>
+                    <textarea
+                      className="input-field"
+                      style={{ width: '100%', minHeight: '160px', fontFamily: 'monospace', fontSize: '0.75rem', marginTop: '0.35rem' }}
+                      value={tplAiPrompt}
+                      onChange={e => setTplAiPrompt(e.target.value)}
+                    />
+                    <button className="btn btn-secondary" style={{ marginTop: '0.5rem' }} onClick={handleCopyTplAiPrompt}>
+                      <Copy size={16} /> Copier le prompt
+                    </button>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      2. Colle ici la réponse JSON de l'IA
+                    </label>
+                    <textarea
+                      className="input-field"
+                      style={{ width: '100%', minHeight: '120px', fontFamily: 'monospace', fontSize: '0.75rem', marginTop: '0.35rem' }}
+                      value={tplAiJsonInput}
+                      onChange={e => setTplAiJsonInput(e.target.value)}
+                      placeholder='{"title": "...", "items": [{"exercise_name": "...", "target_sets": 3, ...}]}'
+                    />
+                    {tplAiParseError && <p style={{ color: '#ff0844', fontSize: '0.8rem', marginTop: '0.35rem' }}>{tplAiParseError}</p>}
+                    <button className="btn btn-primary" style={{ marginTop: '0.5rem' }} onClick={handleParseTplAiJson}>
+                      Parser la réponse
+                    </button>
+                  </div>
+
+                  {tplAiItems.length > 0 && (
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        3. Vérifie / édite avant de créer ({tplAiItems.length} exercice(s))
+                      </label>
+                      <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <input className="input-field" placeholder="Titre" value={tplAiTitle} onChange={e => setTplAiTitle(e.target.value)} />
+                        <textarea className="input-field" placeholder="Description" rows={2} value={tplAiDesc} onChange={e => setTplAiDesc(e.target.value)} />
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.6rem' }}>
+                        {tplAiItems.map((it, idx) => {
+                          const isUnresolved = it.exercise_id === null && !it.new_exercise?.name.trim();
+                          return (
+                          <div key={idx} style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: isUnresolved ? '1px solid #ff0844' : '1px solid var(--glass-border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                              {it.exercise_id !== null ? (
+                                <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: 600 }}>{it.exercise_name}</span>
+                              ) : it.new_exercise ? (
+                                <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: 600, color: 'var(--primary-accent)' }}>
+                                  ✨ Nouvel exercice : {it.new_exercise.name || '(sans nom)'}
+                                </span>
+                              ) : (
+                                <select
+                                  className="input-field"
+                                  style={{ flex: 1 }}
+                                  value=""
+                                  onChange={e => handleUpdateTplAiItem(idx, { exercise_id: Number(e.target.value) })}
+                                >
+                                  <option value="" disabled>⚠ "{it.exercise_name}" introuvable — choisis un exercice</option>
+                                  {exercisesList.map(ex => (
+                                    <option key={ex.id} value={ex.id}>{ex.name}</option>
+                                  ))}
+                                </select>
+                              )}
+                              <button className="btn btn-secondary" onClick={() => handleRemoveTplAiItem(idx)}>
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                            {it.exercise_id === null && it.new_exercise && (
+                              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <input
+                                  className="input-field"
+                                  style={{ flex: 1 }}
+                                  value={it.new_exercise.name}
+                                  onChange={e => handleUpdateTplAiNewExercise(idx, { name: e.target.value })}
+                                />
+                                <select
+                                  className="input-field"
+                                  style={{ flex: 1 }}
+                                  value={it.new_exercise.category}
+                                  onChange={e => handleUpdateTplAiNewExercise(idx, { category: e.target.value })}
+                                >
+                                  <option value="Musculation">Musculation</option>
+                                  <option value="Cardio">Cardio</option>
+                                </select>
+                                <select
+                                  className="input-field"
+                                  style={{ flex: 1 }}
+                                  value={it.new_exercise.primary_muscles[0] || 'chest'}
+                                  onChange={e => handleUpdateTplAiNewExercise(idx, { primary_muscles: [e.target.value] })}
+                                >
+                                  {VALID_MUSCLE_KEYS.map(key => (
+                                    <option key={key} value={key}>{key}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem' }}>
+                              <input className="input-field" type="number" title="Séries" value={it.target_sets} onChange={e => handleUpdateTplAiItem(idx, { target_sets: Number(e.target.value) })} />
+                              <input className="input-field" type="number" title="Reps" value={it.target_reps} onChange={e => handleUpdateTplAiItem(idx, { target_reps: Number(e.target.value) })} />
+                              <input className="input-field" type="number" title="Poids (kg)" value={it.target_weight_kg} onChange={e => handleUpdateTplAiItem(idx, { target_weight_kg: Number(e.target.value) })} />
+                              <input className="input-field" type="number" title="Repos (s)" value={it.rest_seconds} onChange={e => handleUpdateTplAiItem(idx, { rest_seconds: Number(e.target.value) })} />
+                            </div>
+                          </div>
+                          );
+                        })}
+                      </div>
+                      {tplAiHasUnresolved && (
+                        <p style={{ color: '#ff0844', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                          Résous les exercices introuvables (bordure rouge) avant de créer la séance.
+                        </p>
+                      )}
+                      <button
+                        className="btn btn-primary"
+                        style={{ width: '100%', marginTop: '0.75rem' }}
+                        onClick={handleCreateTplFromAi}
+                        disabled={tplAiCreating || tplAiHasUnresolved}
+                      >
+                        {tplAiCreating ? 'Création en cours...' : `Créer la séance (${tplAiItems.length} exercice(s))`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.25rem' }}>
               <div className="glass-panel">
                 <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Plus size={18} color="var(--primary-accent)" /> Créer une Pré-séance
+                  <Plus size={18} color="var(--primary-accent)" /> {editingTemplateId !== null ? 'Modifier la Pré-séance' : 'Créer une Pré-séance'}
                 </h3>
                 <form onSubmit={handleCreateTemplate} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   <div>
@@ -707,40 +1134,109 @@ export default function App() {
                   </div>
                   <div>
                     <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>Exercices inclus</label>
-                    <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                      {exercisesList.map(ex => (
-                        <label key={ex.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-                          <input 
-                            type="checkbox" 
-                            checked={newTplSelectedEx.includes(ex.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) setNewTplSelectedEx(prev => [...prev, ex.id]);
-                              else setNewTplSelectedEx(prev => prev.filter(id => id !== ex.id));
-                            }}
-                          />
-                          {ex.name}
-                        </label>
-                      ))}
+                    <div style={{ marginBottom: '0.6rem' }}>
+                      <BodyVisualizer
+                        width={260}
+                        height={360}
+                        primaryMuscles={tplMuscleFilter ? [tplMuscleFilter] : []}
+                        onSelectMuscle={(m) => setTplMuscleFilter(prev => prev === m ? null : m)}
+                      />
+                      {tplMuscleFilter && (
+                        <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem' }}>
+                          <span>Filtre: <strong style={{ textTransform: 'capitalize' }}>{tplMuscleFilter}</strong></span>
+                          <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setTplMuscleFilter(null)}>
+                            <X size={12} />
+                          </button>
+                        </div>
+                      )}
                     </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <select
+                        className="input-field"
+                        style={{ flex: 1 }}
+                        value={newTplAddExId}
+                        onChange={e => setNewTplAddExId(e.target.value ? Number(e.target.value) : '')}
+                      >
+                        <option value="">Choisir un exercice à ajouter...</option>
+                        {exercisesList
+                          .filter(ex => !tplMuscleFilter || ex.primary_muscles?.includes(tplMuscleFilter) || ex.secondary_muscles?.includes(tplMuscleFilter))
+                          .map(ex => (
+                            <option key={ex.id} value={ex.id}>{ex.name}</option>
+                          ))}
+                      </select>
+                      <button type="button" className="btn btn-secondary" onClick={handleAddTplItem}>
+                        <Plus size={16} /> Ajouter
+                      </button>
+                    </div>
+
+                    {newTplItems.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.6rem' }}>
+                        {newTplItems.map((it, idx) => (
+                          <div key={idx} style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--glass-border)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                              <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: 600 }}>{idx + 1}. {it.exercise_name}</span>
+                              <button type="button" className="btn btn-secondary" disabled={idx === 0} onClick={() => handleMoveTplItem(idx, -1)}>
+                                <ArrowUp size={14} />
+                              </button>
+                              <button type="button" className="btn btn-secondary" disabled={idx === newTplItems.length - 1} onClick={() => handleMoveTplItem(idx, 1)}>
+                                <ArrowDown size={14} />
+                              </button>
+                              <button type="button" className="btn btn-secondary" onClick={() => handleRemoveTplItem(idx)}>
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem' }}>
+                              <input className="input-field" type="number" title="Séries" value={it.target_sets} onChange={e => handleUpdateTplItem(idx, { target_sets: Number(e.target.value) })} />
+                              <input className="input-field" type="number" title="Reps" value={it.target_reps} onChange={e => handleUpdateTplItem(idx, { target_reps: Number(e.target.value) })} />
+                              <input className="input-field" type="number" title="Poids (kg)" value={it.target_weight_kg} onChange={e => handleUpdateTplItem(idx, { target_weight_kg: Number(e.target.value) })} />
+                              <input className="input-field" type="number" title="Repos (s)" value={it.rest_seconds} onChange={e => handleUpdateTplItem(idx, { rest_seconds: Number(e.target.value) })} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <button type="submit" className="btn btn-primary" style={{ marginTop: '0.5rem' }}>Créer le Modèle</button>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                    <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={newTplItems.length === 0}>
+                      {editingTemplateId !== null ? 'Enregistrer les Modifications' : 'Créer le Modèle'}
+                    </button>
+                    {editingTemplateId !== null && (
+                      <button type="button" className="btn btn-secondary" onClick={handleCancelEditTemplate}>Annuler</button>
+                    )}
+                  </div>
                 </form>
               </div>
 
               <div className="glass-panel">
                 <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>Mes Pré-séances</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {templatesList.map(tpl => (
-                    <div key={tpl.id} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-                        <h4 style={{ fontWeight: 700, fontSize: '0.95rem' }}>{tpl.title}</h4>
-                        {tpl.is_predefined_program && <span className="badge badge-warning">Prédéfini</span>}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                  {templatesList.map(tpl => {
+                    const { primary, secondary } = getTemplateMuscles(tpl);
+                    return (
+                      <div key={tpl.id} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid var(--glass-border)', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <h4 style={{ fontWeight: 700, fontSize: '0.95rem' }}>{tpl.title}</h4>
+                          {tpl.is_predefined_program && <span className="badge badge-warning">Prédéfini</span>}
+                        </div>
+                        <BodyVisualizer compact width={140} height={190} primaryMuscles={primary} secondaryMuscles={secondary} />
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          {tpl.created_by_id === currentUser.id && (
+                            <button className="btn btn-secondary" title="Modifier" onClick={() => handleEditTemplate(tpl)}>
+                              <Pencil size={14} />
+                            </button>
+                          )}
+                          <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => startLiveWorkout(tpl)}>
+                            <Play size={14} /> Lancer
+                          </button>
+                          {tpl.created_by_id === currentUser.id && (
+                            <button className="btn btn-secondary" title="Supprimer" onClick={() => handleDeleteTemplate(tpl)}>
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <button className="btn btn-primary" style={{ width: '100%', fontSize: '0.8rem' }} onClick={() => startLiveWorkout(tpl)}>
-                        <Play size={14} /> Lancer la Séance
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1116,7 +1612,19 @@ export default function App() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.25rem' }}>
               <div>
-                <BodyVisualizer primaryMuscles={newExPrimary} selectedExerciseName={newExName} />
+                <BodyVisualizer
+                  primaryMuscles={exerciseMuscleFilter ? [exerciseMuscleFilter] : newExPrimary}
+                  selectedExerciseName={exerciseMuscleFilter ? undefined : newExName}
+                  onSelectMuscle={(m) => setExerciseMuscleFilter(prev => prev === m ? null : m)}
+                />
+                {exerciseMuscleFilter && (
+                  <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+                    <span>Filtre actif: <strong style={{ textTransform: 'capitalize' }}>{exerciseMuscleFilter}</strong></span>
+                    <button type="button" className="btn btn-secondary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => setExerciseMuscleFilter(null)}>
+                      <X size={12} /> Effacer le filtre
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="glass-panel">
@@ -1150,12 +1658,16 @@ export default function App() {
               </div>
 
               <div className="glass-panel">
-                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>Exercices Disponibles dans la Base ({exercisesList.length})</h3>
+                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>
+                  Exercices Disponibles dans la Base ({(exerciseMuscleFilter ? exercisesList.filter(ex => ex.primary_muscles?.includes(exerciseMuscleFilter) || ex.secondary_muscles?.includes(exerciseMuscleFilter)) : exercisesList).length})
+                </h3>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-                  Cliquez sur un exercice pour afficher son ciblage anatomique dynamique sur la carte musculaire ci-dessus.
+                  Cliquez sur un exercice pour afficher son ciblage anatomique, ou sur un muscle de la carte pour filtrer la liste.
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
-                  {exercisesList.map(ex => (
+                  {exercisesList
+                    .filter(ex => !exerciseMuscleFilter || ex.primary_muscles?.includes(exerciseMuscleFilter) || ex.secondary_muscles?.includes(exerciseMuscleFilter))
+                    .map(ex => (
                     <div 
                       key={ex.id} 
                       onClick={() => {
@@ -1174,7 +1686,19 @@ export default function App() {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
                         <h4 style={{ fontWeight: 700, fontSize: '0.9rem' }}>{ex.name}</h4>
-                        <span className="badge badge-primary">{ex.category}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span className="badge badge-primary">{ex.category}</span>
+                          {(currentUser.role === 'admin' || ex.created_by_id === currentUser.id) && (
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: '0.2rem 0.35rem' }}
+                              onClick={(e) => { e.stopPropagation(); handleDeleteExercise(ex); }}
+                              title="Supprimer l'exercice"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.6rem' }}>{ex.description || 'Exercice configuré'}</p>
                       

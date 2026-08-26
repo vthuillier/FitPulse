@@ -51,6 +51,17 @@ export async function createExerciseApi(exercise: any) {
   return res.json();
 }
 
+export async function deleteExerciseApi(exerciseId: number) {
+  const res = await fetch(`${API_URL}/exercises/${exerciseId}`, {
+    method: "DELETE",
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Erreur suppression exercice");
+  }
+}
+
 export async function enrichCatalogApi() {
   const res = await fetch(`${API_URL}/exercises/enrich-catalog`, {
     method: "POST",
@@ -79,6 +90,19 @@ export async function createTemplateApi(templateData: any) {
   return res.json();
 }
 
+export async function updateTemplateApi(templateId: number, templateData: any) {
+  const res = await fetch(`${API_URL}/templates/${templateId}`, {
+    method: "PUT",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(templateData)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Erreur modification pré-séance");
+  }
+  return res.json();
+}
+
 export async function fetchWeeklySummary() {
   const res = await fetch(`${API_URL}/workouts/weekly-summary`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error("Erreur chargement planning hebdo");
@@ -99,6 +123,17 @@ export async function saveWorkoutSessionApi(sessionData: any) {
   });
   if (!res.ok) throw new Error("Erreur sauvegarde séance");
   return res.json();
+}
+
+export async function deleteTemplateApi(templateId: number) {
+  const res = await fetch(`${API_URL}/templates/${templateId}`, {
+    method: "DELETE",
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Erreur suppression pré-séance");
+  }
 }
 
 export async function fetchMeasurements() {

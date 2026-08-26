@@ -7,6 +7,7 @@ interface BodyVisualizerProps {
   selectedExerciseName?: string;
   width?: number;
   height?: number;
+  compact?: boolean;
 }
 
 export const BodyVisualizer: React.FC<BodyVisualizerProps> = ({
@@ -15,7 +16,8 @@ export const BodyVisualizer: React.FC<BodyVisualizerProps> = ({
   onSelectMuscle,
   selectedExerciseName,
   width = 340,
-  height = 460
+  height = 460,
+  compact = false
 }) => {
   const isPrimary = (muscle: string) => primaryMuscles.includes(muscle);
   const isSecondary = (muscle: string) => secondaryMuscles.includes(muscle);
@@ -33,26 +35,31 @@ export const BodyVisualizer: React.FC<BodyVisualizerProps> = ({
   };
 
   return (
-    <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.25rem', padding: '1.5rem', background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.8) 100%)', border: '1px solid rgba(0, 242, 254, 0.3)', boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)' }}>
-      <div style={{ textAlign: 'center' }}>
-        <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-          <span>🦸</span> Carte Musculaire Anatomique 3D
-        </h3>
-        {selectedExerciseName ? (
-          <div style={{ fontSize: '0.85rem', color: 'var(--primary-accent)', fontWeight: 700, marginTop: '0.25rem' }}>
-            Exercice Sélectionné: <span style={{ textDecoration: 'underline' }}>{selectedExerciseName}</span>
-          </div>
-        ) : (
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-            Cliquez sur un exercice ou un groupe musculaire pour visualiser l'impact
-          </div>
-        )}
-      </div>
+    <div className={compact ? undefined : "glass-panel"} style={compact
+      ? { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem' }
+      : { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.25rem', padding: '1.5rem', background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.8) 100%)', border: '1px solid rgba(0, 242, 254, 0.3)', boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)' }
+    }>
+      {!compact && (
+        <div style={{ textAlign: 'center' }}>
+          <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+            <span>🦸</span> Carte Musculaire Anatomique 3D
+          </h3>
+          {selectedExerciseName ? (
+            <div style={{ fontSize: '0.85rem', color: 'var(--primary-accent)', fontWeight: 700, marginTop: '0.25rem' }}>
+              Exercice Sélectionné: <span style={{ textDecoration: 'underline' }}>{selectedExerciseName}</span>
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+              Cliquez sur un exercice ou un groupe musculaire pour visualiser l'impact
+            </div>
+          )}
+        </div>
+      )}
 
-      <div style={{ display: 'flex', gap: '2rem', justifyContent: 'center', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: compact ? '0.5rem' : '2rem', justifyContent: 'center', alignItems: 'center' }}>
         {/* VUE FACE (FRONT) */}
         <div style={{ textAlign: 'center' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--primary-accent)', letterSpacing: '1px', textTransform: 'uppercase' }}>VUE FACE</span>
+          {!compact && <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--primary-accent)', letterSpacing: '1px', textTransform: 'uppercase' }}>VUE FACE</span>}
           <svg width={width / 2} height={height} viewBox="0 0 100 200" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ filter: 'drop-shadow(0 4px 12px rgba(0,0,0,0.6))' }}>
             {/* Tête, cou, silhouette bassin/pieds (non-interactif) */}
             <circle cx="50" cy="14" r="9" fill="#0f172a" stroke="#334155" strokeWidth="2"/>
@@ -197,7 +204,7 @@ export const BodyVisualizer: React.FC<BodyVisualizerProps> = ({
 
         {/* VUE DOS (BACK) */}
         <div style={{ textAlign: 'center' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--primary-accent)', letterSpacing: '1px', textTransform: 'uppercase' }}>VUE DOS</span>
+          {!compact && <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--primary-accent)', letterSpacing: '1px', textTransform: 'uppercase' }}>VUE DOS</span>}
           <svg width={width / 2} height={height} viewBox="0 0 100 200" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ filter: 'drop-shadow(0 4px 12px rgba(0,0,0,0.6))' }}>
             {/* Tête, cou, silhouette bassin/pieds (non-interactif) */}
             <circle cx="50" cy="14" r="9" fill="#0f172a" stroke="#334155" strokeWidth="2"/>
@@ -314,16 +321,18 @@ export const BodyVisualizer: React.FC<BodyVisualizerProps> = ({
       </div>
 
       {/* Légende Stylisée */}
-      <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.85rem', marginTop: '0.5rem', padding: '0.5rem 1rem', background: 'rgba(0,0,0,0.4)', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <span style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: '#ff0844', boxShadow: '0 0 10px #ff0844' }}></span>
-          <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Muscle Principal</span>
+      {!compact && (
+        <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.85rem', marginTop: '0.5rem', padding: '0.5rem 1rem', background: 'rgba(0,0,0,0.4)', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <span style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: '#ff0844', boxShadow: '0 0 10px #ff0844' }}></span>
+            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Muscle Principal</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <span style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: '#ffab00', boxShadow: '0 0 8px #ffab00' }}></span>
+            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Secondaire</span>
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <span style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: '#ffab00', boxShadow: '0 0 8px #ffab00' }}></span>
-          <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Secondaire</span>
-        </div>
-      </div>
+      )}
     </div>
   );
 };

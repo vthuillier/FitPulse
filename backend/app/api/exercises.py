@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.core.database import get_db
-from app.models.models import Exercise, ExerciseMetricType, User
+from app.models.models import Exercise, ExerciseMetricType, User, UserRole, WorkoutTemplateItem, WorkoutSessionExercise
 from app.schemas.schemas import ExerciseCreate, ExerciseResponse
 from app.api.deps import get_current_user
 
@@ -239,6 +239,31 @@ async def enrich_exercises_catalog(
     all_exercises = res_all.scalars().all()
     print(f"📊 [ENRICH CATALOG] Nombre total d'exercices dans la BDD: {len(all_exercises)}", flush=True)
     return all_exercises
+
+@router.delete("/{exercise_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_exercise(
+    exercise_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Supprimer un exercice. Réservé au créateur de l'exercice ou à un admin, et refusé s'il est utilisé dans une pré-séance ou un historique de séance."""
+    exercise = await db.get(Exercise, exercise_id)
+    if not exercise:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exercice introuvable.")
+
+    if current_user.role != UserRole.ADMIN and exercise.created_by_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Vous ne pouvez supprimer que vos propres exercices personnalisés.")
+
+    in_template = (await db.execute(select(WorkoutTemplateItem).where(WorkoutTemplateItem.exercise_id == exercise_id).limit(1))).scalars().first()
+    in_session = (await db.execute(select(WorkoutSessionExercise).where(WorkoutSessionExercise.exercise_id == exercise_id).limit(1))).scalars().first()
+    if in_template or in_session:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cet exercice est utilisé dans une pré-séance ou un historique de séance et ne peut pas être supprimé."
+        )
+
+    await db.delete(exercise)
+    await db.commit()
 
 
 
