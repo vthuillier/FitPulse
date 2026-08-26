@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { 
   Activity, Dumbbell, Calendar, LineChart, Users, Shield, 
-  Play, Plus, Check, Flame, Award
+  Play, Plus, Check, Flame, Award, Globe, Timer
 } from 'lucide-react';
 import { BodyVisualizer } from './components/BodyVisualizer';
 import { 
@@ -29,8 +29,9 @@ export function App() {
   const [measurementsList, setMeasurementsList] = useState<any[]>([]);
   const [communityList, setCommunityList] = useState<any[]>([]);
   const [adminUsers, setAdminUsers] = useState<any[]>([]);
+  const [importingApi, setImportingApi] = useState(false);
 
-  // Live workout mode state
+  // Live workout mode state & Timer
   const [activeTemplate, setActiveTemplate] = useState<any>(null);
   const [lastSessionData, setLastSessionData] = useState<any>(null);
   const [liveTitle, setLiveTitle] = useState('Séance à la volée');
@@ -39,11 +40,15 @@ export function App() {
   const [liveNotes, setLiveNotes] = useState('');
   const [liveSets, setLiveSets] = useState<{ [exId: number]: any[] }>({});
 
+  // Rest Timer state (Mobile)
+  const [restSecondsLeft, setRestSecondsLeft] = useState<number | null>(null);
+  const [isTimerActive, setIsTimerActive] = useState(false);
+
   // New Exercise Form State
   const [newExName, setNewExName] = useState('');
   const [newExCategory, setNewExCategory] = useState('Musculation');
   const [newExMetric] = useState('reps_weight');
-  const [newExRest, setNewExRest] = useState(60);
+  const [newExRest] = useState(60);
   const [newExPrimary, setNewExPrimary] = useState<string[]>(['chest']);
 
   // New Template Form State
@@ -67,6 +72,20 @@ export function App() {
       loadProfileAndData();
     }
   }, [token]);
+
+  // Timer countdown effect
+  useEffect(() => {
+    let interval: any = null;
+    if (isTimerActive && restSecondsLeft !== null && restSecondsLeft > 0) {
+      interval = setInterval(() => {
+        setRestSecondsLeft(prev => (prev !== null && prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    } else if (restSecondsLeft === 0) {
+      setIsTimerActive(false);
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    }
+    return () => clearInterval(interval);
+  }, [isTimerActive, restSecondsLeft]);
 
   const loadProfileAndData = async () => {
     try {
@@ -158,7 +177,14 @@ export function App() {
   const toggleSetComplete = (exId: number, setIdx: number) => {
     setLiveSets(prev => {
       const updatedEx = [...(prev[exId] || [])];
-      updatedEx[setIdx] = { ...updatedEx[setIdx], completed: !updatedEx[setIdx].completed };
+      const nextState = !updatedEx[setIdx].completed;
+      updatedEx[setIdx] = { ...updatedEx[setIdx], completed: nextState };
+      
+      // Auto-trigger rest timer on mobile when completing a set
+      if (nextState) {
+        setRestSecondsLeft(updatedEx[setIdx].rest_seconds || 60);
+        setIsTimerActive(true);
+      }
       return { ...prev, [exId]: updatedEx };
     });
   };
@@ -198,12 +224,15 @@ export function App() {
   };
 
   const handleImportWger = async () => {
+    setImportingApi(true);
     try {
       const imported = await importExercisesFromWgerApi();
-      alert(`🎉 ${imported.length} nouveau(x) exercice(s) importé(s) avec succès depuis l'API Wger !`);
-      refreshDashboard();
+      alert(`🎉 ${imported.length} nouveau(x) exercice(s) importé(s) avec succès !`);
+      await refreshDashboard();
     } catch (err: any) {
       alert("Erreur lors de l'import API : " + err.message);
+    } finally {
+      setImportingApi(false);
     }
   };
 
@@ -302,7 +331,6 @@ export function App() {
     }
   };
 
-  // Render Login Page if not authenticated
   if (!token || !currentUser) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '1rem' }}>
@@ -312,7 +340,7 @@ export function App() {
           </div>
           <h1 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>FitPulse Pro</h1>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
-            Plateforme hautement sécurisée de tracking & d'optimisation sportive
+            Plateforme sécurisée de tracking & d'optimisation à la salle
           </p>
 
           {loginError && (
@@ -323,43 +351,27 @@ export function App() {
 
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left' }}>
             <div>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Email Admin / Athlète</label>
-              <input 
-                type="email" 
-                className="input-field" 
-                value={loginEmail} 
-                onChange={(e) => setLoginEmail(e.target.value)}
-                required 
-              />
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Email</label>
+              <input type="email" className="input-field" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} required />
             </div>
             <div>
               <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.3rem', display: 'block' }}>Mot de passe</label>
-              <input 
-                type="password" 
-                className="input-field" 
-                value={loginPassword} 
-                onChange={(e) => setLoginPassword(e.target.value)}
-                required 
-              />
+              <input type="password" className="input-field" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} required />
             </div>
             <button type="submit" className="btn btn-primary" style={{ marginTop: '0.5rem', width: '100%' }}>
               Se Connecter
             </button>
           </form>
-          <div style={{ marginTop: '1.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            🔒 Inscriptions publiques fermées. Accès géré par l'Administrateur.
-          </div>
         </div>
       </div>
     );
   }
 
-  // Active muscle groups calculation for preview
   const activeMuscles = activeTemplate?.template_items?.flatMap((i: any) => i.exercise.primary_muscles) || [];
 
   return (
     <div className="app-container">
-      {/* Sidebar Navigation */}
+      {/* Desktop Sidebar Navigation */}
       <aside className="sidebar">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <Activity size={28} color="var(--primary-accent)" />
@@ -399,84 +411,100 @@ export function App() {
 
         <div style={{ marginTop: 'auto', borderTop: '1px solid var(--glass-border)', paddingTop: '1rem' }}>
           <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{currentUser.full_name}</div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>{currentUser.email}</div>
-          <button className="btn btn-secondary" onClick={handleLogout} style={{ width: '100%', fontSize: '0.8rem' }}>
+          <button className="btn btn-secondary" onClick={handleLogout} style={{ width: '100%', fontSize: '0.8rem', marginTop: '0.5rem' }}>
             Déconnexion
           </button>
         </div>
       </aside>
 
+      {/* Mobile Bottom Navigation Bar */}
+      <nav className="mobile-nav-bar">
+        <button className={`mobile-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
+          <Calendar size={20} />
+          <span>Planning</span>
+        </button>
+        <button className={`mobile-nav-item ${activeTab === 'templates' ? 'active' : ''}`} onClick={() => setActiveTab('templates')}>
+          <Dumbbell size={20} />
+          <span>Pré-séances</span>
+        </button>
+        <button className={`mobile-nav-item ${activeTab === 'live' ? 'active-live' : ''}`} onClick={() => startLiveWorkout()}>
+          <Play size={22} color="var(--secondary-accent)" />
+          <span style={{ color: 'var(--secondary-accent)', fontWeight: 700 }}>Live</span>
+        </button>
+        <button className={`mobile-nav-item ${activeTab === 'measurements' ? 'active' : ''}`} onClick={() => setActiveTab('measurements')}>
+          <LineChart size={20} />
+          <span>Tailles</span>
+        </button>
+        <button className={`mobile-nav-item ${activeTab === 'exercises' ? 'active' : ''}`} onClick={() => setActiveTab('exercises')}>
+          <Flame size={20} />
+          <span>Exercices</span>
+        </button>
+      </nav>
+
       {/* Main Content Area */}
       <main className="main-content">
 
-        {/* TAB 1: WEEKLY PLANNING & DASHBOARD */}
+        {/* TAB 1: WEEKLY PLANNING */}
         {activeTab === 'dashboard' && weeklyData && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <header style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
               <div>
-                <h1 style={{ fontSize: '1.8rem', fontWeight: 800 }}>Planning Hebdomadaire</h1>
-                <p style={{ color: 'var(--text-secondary)' }}>Aperçu de ce que vous avez réalisé et des séances suggérées.</p>
+                <h1 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Planning Salle & Semaine</h1>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Suivez vos séances accomplies et à venir.</p>
               </div>
-              <button className="btn btn-primary" onClick={() => startLiveWorkout()}>
+              <button className="btn btn-primary" style={{ width: '100%', maxWidth: '240px' }} onClick={() => startLiveWorkout()}>
                 <Play size={18} /> Lancer Séance à la Volée
               </button>
             </header>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
-              {/* Stat Card 1 */}
-              <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <div style={{ padding: '1rem', background: 'rgba(0,242,254,0.15)', borderRadius: '12px' }}>
-                  <Award size={32} color="var(--primary-accent)" />
-                </div>
-                <div>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 800 }}>{weeklyData.total_workouts}</div>
-                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Séances effectuées cette semaine</div>
-                </div>
+            <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ padding: '0.75rem', background: 'rgba(0,242,254,0.15)', borderRadius: '12px' }}>
+                <Award size={28} color="var(--primary-accent)" />
+              </div>
+              <div>
+                <div style={{ fontSize: '1.6rem', fontWeight: 800 }}>{weeklyData.total_workouts}</div>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Séances effectuées cette semaine</div>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
-              {/* Left Column: Workouts completed */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               <div className="glass-panel">
-                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Check size={20} color="var(--success-accent)" /> Séances Accomplies la Semaine
+                <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Check size={18} color="var(--success-accent)" /> Séances Accomplies
                 </h3>
                 {weeklyData.completed_sessions.length === 0 ? (
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Aucune séance enregistrée cette semaine. Lancez votre première séance !</p>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Aucune séance enregistrée cette semaine.</p>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {weeklyData.completed_sessions.map((sess: any) => (
-                      <div key={sess.id} style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                      <div key={sess.id} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <h4 style={{ fontWeight: 700 }}>{sess.title}</h4>
+                          <h4 style={{ fontWeight: 700, fontSize: '0.95rem' }}>{sess.title}</h4>
                           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                             {new Date(sess.start_time).toLocaleDateString('fr-FR')}
                           </span>
                         </div>
-                        {sess.body_weight_kg && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.3rem' }}>⚖️ Poids du jour: {sess.body_weight_kg} kg</div>}
-                        {sess.meals_logged && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>🥗 Nutrition: {sess.meals_logged}</div>}
                       </div>
                     ))}
                   </div>
                 )}
 
-                <h3 style={{ fontSize: '1.2rem', marginTop: '2rem', marginBottom: '1rem' }}>
-                  ⚡ Séances Disponibles / Modèles (Recommandés)
+                <h3 style={{ fontSize: '1.1rem', marginTop: '1.5rem', marginBottom: '1rem' }}>
+                  ⚡ Pré-séances Recommandées
                 </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
                   {weeklyData.suggested_templates.map((tpl: any) => (
-                    <div key={tpl.id} style={{ padding: '1rem', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>
-                      <h4 style={{ fontWeight: 700, marginBottom: '0.3rem' }}>{tpl.title}</h4>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>{tpl.description}</p>
+                    <div key={tpl.id} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>
+                      <h4 style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '0.2rem' }}>{tpl.title}</h4>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>{tpl.description}</p>
                       <button className="btn btn-secondary" style={{ width: '100%', fontSize: '0.8rem' }} onClick={() => startLiveWorkout(tpl)}>
-                        <Play size={14} /> Lancer cette Séance
+                        <Play size={14} /> Démarrer
                       </button>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Right Column: Visualizer Preview */}
               <div>
                 <BodyVisualizer primaryMuscles={['chest', 'quadriceps']} secondaryMuscles={['triceps', 'abs']} />
               </div>
@@ -484,34 +512,32 @@ export function App() {
           </div>
         )}
 
-        {/* TAB 2: TEMPLATES & PRE-SEANCES */}
+        {/* TAB 2: PRE-SEANCES */}
         {activeTab === 'templates' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <header>
-              <h1 style={{ fontSize: '1.8rem', fontWeight: 800 }}>Modèles de Pré-séances & Programmes</h1>
-              <p style={{ color: 'var(--text-secondary)' }}>Créez vos pré-séances (ex: Push, Pull, Legs) ou suivez les programmes prédéfinis.</p>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Pré-séances & Modèles</h1>
             </header>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-              {/* Créer un modèle */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.25rem' }}>
               <div className="glass-panel">
-                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Plus size={20} color="var(--primary-accent)" /> Créer une Pré-séance Personnalisée
+                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Plus size={18} color="var(--primary-accent)" /> Créer une Pré-séance
                 </h3>
-                <form onSubmit={handleCreateTemplate} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <form onSubmit={handleCreateTemplate} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Titre (ex: Séance Push / Cardio High)</label>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Titre (ex: Push Pectoraux)</label>
                     <input className="input-field" value={newTplTitle} onChange={e => setNewTplTitle(e.target.value)} required />
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Description</label>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Description</label>
                     <textarea className="input-field" value={newTplDesc} onChange={e => setNewTplDesc(e.target.value)} rows={2} />
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', display: 'block' }}>Sélectionner les exercices de la pré-séance</label>
-                    <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.4rem', display: 'block' }}>Exercices inclus</label>
+                    <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                       {exercisesList.map(ex => (
-                        <label key={ex.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                        <label key={ex.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
                           <input 
                             type="checkbox" 
                             checked={newTplSelectedEx.includes(ex.id)}
@@ -520,28 +546,26 @@ export function App() {
                               else setNewTplSelectedEx(prev => prev.filter(id => id !== ex.id));
                             }}
                           />
-                          {ex.name} <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>({ex.category})</span>
+                          {ex.name}
                         </label>
                       ))}
                     </div>
                   </div>
-                  <button type="submit" className="btn btn-primary">Enregistrer la Pré-séance</button>
+                  <button type="submit" className="btn btn-primary" style={{ marginTop: '0.5rem' }}>Créer le Modèle</button>
                 </form>
               </div>
 
-              {/* Mes Pré-séances */}
               <div className="glass-panel">
-                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Mes Pré-séances & Programmes Enregistrés</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>Mes Pré-séances</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {templatesList.map(tpl => (
-                    <div key={tpl.id} style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <h4 style={{ fontWeight: 700 }}>{tpl.title}</h4>
-                        {tpl.is_predefined_program && <span className="badge badge-warning">Programme Prédéfini</span>}
+                    <div key={tpl.id} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                        <h4 style={{ fontWeight: 700, fontSize: '0.95rem' }}>{tpl.title}</h4>
+                        {tpl.is_predefined_program && <span className="badge badge-warning">Prédéfini</span>}
                       </div>
-                      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>{tpl.description}</p>
-                      <button className="btn btn-primary" style={{ width: '100%', fontSize: '0.85rem' }} onClick={() => startLiveWorkout(tpl)}>
-                        <Play size={16} /> Lancer la Séance
+                      <button className="btn btn-primary" style={{ width: '100%', fontSize: '0.8rem' }} onClick={() => startLiveWorkout(tpl)}>
+                        <Play size={14} /> Lancer la Séance
                       </button>
                     </div>
                   ))}
@@ -551,227 +575,149 @@ export function App() {
           </div>
         )}
 
-        {/* TAB 3: LIVE WORKOUT MODE */}
+        {/* TAB 3: LIVE WORKOUT MODE (MOBILE OPTIMIZED) */}
         {activeTab === 'live' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
               <div>
-                <h1 style={{ fontSize: '1.8rem', fontWeight: 800 }}>⚡ Mode Séance en Direct</h1>
-                <p style={{ color: 'var(--text-secondary)' }}>Consignez vos reps, poids, et comparez vos perfs avec l'ancienne séance !</p>
+                <h1 style={{ fontSize: '1.5rem', fontWeight: 800 }}>⚡ Séance Live à la Salle</h1>
               </div>
-              <button className="btn btn-danger" onClick={handleFinishWorkout}>
-                <Check size={18} /> Valider & Terminer la Séance
+              <button className="btn btn-danger" style={{ width: '100%' }} onClick={handleFinishWorkout}>
+                <Check size={18} /> Valider la Séance
               </button>
             </header>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
-              <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                <div>
-                  <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Nom de la Séance</label>
-                  <input className="input-field" value={liveTitle} onChange={e => setLiveTitle(e.target.value)} />
+            {/* Mobile Rest Timer Sticky Box */}
+            {restSecondsLeft !== null && (
+              <div style={{ background: isTimerActive ? 'rgba(0,242,254,0.15)' : 'rgba(255,255,255,0.05)', border: '1px solid var(--primary-accent)', borderRadius: '12px', padding: '0.75rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Timer size={22} color="var(--primary-accent)" />
+                  <span style={{ fontSize: '0.9rem', fontWeight: 700 }}>Chrono Repos: {restSecondsLeft}s</span>
                 </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Poids du jour (kg)</label>
-                    <input type="number" step="0.1" className="input-field" placeholder="ex: 78.5" value={liveBodyWeight} onChange={e => setLiveBodyWeight(e.target.value)} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Repas / Calories du jour</label>
-                    <input className="input-field" placeholder="ex: 2800 kcal - Poulet Riz" value={liveMeals} onChange={e => setLiveMeals(e.target.value)} />
-                  </div>
-                </div>
-
-                {/* Exercises list in live mode */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  {Object.keys(liveSets).map((exIdStr) => {
-                    const exId = Number(exIdStr);
-                    const exObj = exercisesList.find(e => e.id === exId);
-                    if (!exObj) return null;
-
-                    return (
-                      <div key={exId} style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                          <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{exObj.name}</h3>
-                          <span className="badge badge-primary">{exObj.category}</span>
-                        </div>
-
-                        {/* Comparative previous session hint */}
-                        {lastSessionData && (
-                          <div style={{ background: 'rgba(0,242,254,0.08)', padding: '0.5rem 0.75rem', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--primary-accent)', marginBottom: '0.75rem' }}>
-                            📊 Ancienne Séance : Fait précédemment sur cette séance.
-                          </div>
-                        )}
-
-                        {/* Sets table */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          {liveSets[exId].map((set, idx) => (
-                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: set.completed ? 'rgba(0,230,118,0.1)' : 'transparent', padding: '0.4rem', borderRadius: '6px' }}>
-                              <span style={{ fontSize: '0.85rem', fontWeight: 700, width: '60px' }}>Série {set.set_number}</span>
-                              <input 
-                                type="number" 
-                                className="input-field" 
-                                style={{ width: '80px', padding: '0.4rem' }} 
-                                placeholder="Reps" 
-                                value={set.reps_completed} 
-                                onChange={(e) => updateSetDetail(exId, idx, 'reps_completed', e.target.value)} 
-                              />
-                              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>reps x</span>
-                              <input 
-                                type="number" 
-                                step="0.5"
-                                className="input-field" 
-                                style={{ width: '90px', padding: '0.4rem' }} 
-                                placeholder="Kg" 
-                                value={set.weight_kg} 
-                                onChange={(e) => updateSetDetail(exId, idx, 'weight_kg', e.target.value)} 
-                              />
-                              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>kg</span>
-                              <button 
-                                className={`btn ${set.completed ? 'btn-primary' : 'btn-secondary'}`}
-                                style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', marginLeft: 'auto' }}
-                                onClick={() => toggleSetComplete(exId, idx)}
-                              >
-                                {set.completed ? '✓ Fait' : 'Valider'}
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <button className="btn btn-secondary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }} onClick={() => setIsTimerActive(!isTimerActive)}>
+                  {isTimerActive ? 'Pause' : 'Relancer'}
+                </button>
               </div>
+            )}
 
-              {/* Right column: Target Body Heatmap */}
+            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               <div>
-                <BodyVisualizer primaryMuscles={activeMuscles} />
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Nom de la Séance</label>
+                <input className="input-field" value={liveTitle} onChange={e => setLiveTitle(e.target.value)} />
               </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Poids (kg)</label>
+                  <input type="number" step="0.1" className="input-field" placeholder="ex: 78.5" value={liveBodyWeight} onChange={e => setLiveBodyWeight(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Repas du jour</label>
+                  <input className="input-field" placeholder="ex: Poulet Riz" value={liveMeals} onChange={e => setLiveMeals(e.target.value)} />
+                </div>
+              </div>
+
+              {/* Exercises in live session */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                {Object.keys(liveSets).map((exIdStr) => {
+                  const exId = Number(exIdStr);
+                  const exObj = exercisesList.find(e => e.id === exId);
+                  if (!exObj) return null;
+
+                  return (
+                    <div key={exId} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>{exObj.name}</h3>
+                        <span className="badge badge-primary">{exObj.category}</span>
+                      </div>
+
+                      {lastSessionData && (
+                        <div style={{ background: 'rgba(0,242,254,0.08)', padding: '0.4rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--primary-accent)', marginBottom: '0.5rem' }}>
+                          📊 Session précédente relevée
+                        </div>
+                      )}
+
+                      {/* Tactile Mobile Sets */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        {liveSets[exId].map((set, idx) => (
+                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: set.completed ? 'rgba(0,230,118,0.1)' : 'transparent', padding: '0.4rem', borderRadius: '6px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 700, width: '45px' }}>#{set.set_number}</span>
+                            <input 
+                              type="number" 
+                              className="input-field" 
+                              style={{ width: '70px', padding: '0.4rem', fontSize: '1rem' }} 
+                              placeholder="Reps" 
+                              value={set.reps_completed} 
+                              onChange={(e) => updateSetDetail(exId, idx, 'reps_completed', e.target.value)} 
+                            />
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>reps</span>
+                            <input 
+                              type="number" 
+                              step="0.5"
+                              className="input-field" 
+                              style={{ width: '75px', padding: '0.4rem', fontSize: '1rem' }} 
+                              placeholder="Kg" 
+                              value={set.weight_kg} 
+                              onChange={(e) => updateSetDetail(exId, idx, 'weight_kg', e.target.value)} 
+                            />
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>kg</span>
+                            <button 
+                              className={`btn ${set.completed ? 'btn-primary' : 'btn-secondary'}`}
+                              style={{ padding: '0.5rem 0.8rem', fontSize: '0.8rem', marginLeft: 'auto' }}
+                              onClick={() => toggleSetComplete(exId, idx)}
+                            >
+                              {set.completed ? '✓ Fait' : 'Valider'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <BodyVisualizer primaryMuscles={activeMuscles} />
             </div>
           </div>
         )}
 
         {/* TAB 4: MENSURATIONS */}
         {activeTab === 'measurements' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <header>
-              <h1 style={{ fontSize: '1.8rem', fontWeight: 800 }}>Suivi des Mensurations</h1>
-              <p style={{ color: 'var(--text-secondary)' }}>Suivez la progression de votre poids et vos mensurations musculaires.</p>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Mensurations</h1>
             </header>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.25rem' }}>
               <div className="glass-panel">
-                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Nouvelle Prise</h3>
-                <form onSubmit={handleAddMeasurement} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>Nouvelle Prise</h3>
+                <form onSubmit={handleAddMeasurement} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Poids (kg)</label>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Poids (kg)</label>
                     <input type="number" step="0.1" className="input-field" value={measWeight} onChange={e => setMeasWeight(e.target.value)} />
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Tour de Pectoraux (cm)</label>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Tour de Pectoraux (cm)</label>
                     <input type="number" step="0.5" className="input-field" value={measChest} onChange={e => setMeasChest(e.target.value)} />
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Tour de Taille / Ventre (cm)</label>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Tour de Ventre (cm)</label>
                     <input type="number" step="0.5" className="input-field" value={measWaist} onChange={e => setMeasWaist(e.target.value)} />
                   </div>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Tour de Biceps (cm)</label>
-                    <input type="number" step="0.5" className="input-field" value={measBiceps} onChange={e => setMeasBiceps(e.target.value)} />
-                  </div>
-                  <button type="submit" className="btn btn-primary">Enregistrer Mensuration</button>
+                  <button type="submit" className="btn btn-primary" style={{ marginTop: '0.5rem' }}>Enregistrer</button>
                 </form>
               </div>
 
               <div className="glass-panel">
-                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Historique des Relevés</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)' }}>
-                      <th style={{ padding: '0.75rem' }}>Date</th>
-                      <th style={{ padding: '0.75rem' }}>Poids (kg)</th>
-                      <th style={{ padding: '0.75rem' }}>Pecs (cm)</th>
-                      <th style={{ padding: '0.75rem' }}>Ventre (cm)</th>
-                      <th style={{ padding: '0.75rem' }}>Biceps (cm)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {measurementsList.map(m => (
-                      <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                        <td style={{ padding: '0.75rem' }}>{new Date(m.recorded_at).toLocaleDateString('fr-FR')}</td>
-                        <td style={{ padding: '0.75rem', fontWeight: 700 }}>{m.weight_kg || '-'}</td>
-                        <td style={{ padding: '0.75rem' }}>{m.chest_cm || '-'}</td>
-                        <td style={{ padding: '0.75rem' }}>{m.waist_cm || '-'}</td>
-                        <td style={{ padding: '0.75rem' }}>{m.biceps_cm || '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 5: EXERCISES DATABASE */}
-        {activeTab === 'exercises' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h1 style={{ fontSize: '1.8rem', fontWeight: 800 }}>Base de Données des Exercices</h1>
-                <p style={{ color: 'var(--text-secondary)' }}>Consultez la liste des exercices configurés, ajoutez-en des nouveaux ou importez-en via l'API publique Wger.</p>
-              </div>
-              <button className="btn btn-primary" onClick={handleImportWger}>
-                🌐 Importer via API Externe (Wger)
-              </button>
-            </header>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
-              <div className="glass-panel">
-                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Ajouter un Exercice "Configuré"</h3>
-                <form onSubmit={handleCreateExercise} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Nom (ex: Pompes Diamant)</label>
-                    <input className="input-field" value={newExName} onChange={e => setNewExName(e.target.value)} required />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Catégorie</label>
-                    <select className="input-field" value={newExCategory} onChange={e => setNewExCategory(e.target.value)}>
-                      <option value="Musculation">Musculation</option>
-                      <option value="Cardio">Cardio</option>
-                      <option value="Stretches">Stretches</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Temps de repos par défaut (secondes)</label>
-                    <input type="number" className="input-field" value={newExRest} onChange={e => setNewExRest(Number(e.target.value))} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Muscle Principal Cible</label>
-                    <select className="input-field" onChange={e => setNewExPrimary([e.target.value])}>
-                      <option value="chest">Pectoraux (Chest)</option>
-                      <option value="triceps">Triceps</option>
-                      <option value="biceps">Biceps</option>
-                      <option value="shoulders">Épaules (Shoulders)</option>
-                      <option value="back_lats">Dos (Back)</option>
-                      <option value="quadriceps">Quadriceps</option>
-                      <option value="abs">Abdominaux (Abs)</option>
-                    </select>
-                  </div>
-                  <button type="submit" className="btn btn-primary">Créer Exercice BDD</button>
-                </form>
-              </div>
-
-              <div className="glass-panel">
-                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Exercices Disponibles</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
-                  {exercisesList.map(ex => (
-                    <div key={ex.id} style={{ padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <h4 style={{ fontWeight: 700 }}>{ex.name}</h4>
-                        <span className="badge badge-primary">{ex.category}</span>
-                      </div>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>{ex.description || 'Exercice configuré standard'}</p>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>⏱ Repos: {ex.default_rest_seconds}s</div>
+                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>Historique</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {measurementsList.map(m => (
+                    <div key={m.id} style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                      <span>{new Date(m.recorded_at).toLocaleDateString('fr-FR')}</span>
+                      <span style={{ fontWeight: 700 }}>⚖️ {m.weight_kg || '-'} kg</span>
+                      <span>Pecs: {m.chest_cm || '-'} cm</span>
                     </div>
                   ))}
                 </div>
@@ -780,25 +726,81 @@ export function App() {
           </div>
         )}
 
-        {/* TAB 6: COMMUNITY & PROGRESS SHARING */}
+        {/* TAB 5: EXERCISES & WGER API IMPORT */}
+        {activeTab === 'exercises' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <header style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Base d'Exercices</h1>
+              <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleImportWger} disabled={importingApi}>
+                <Globe size={18} /> {importingApi ? 'Import en cours...' : 'Importer via API Externe (Wger)'}
+              </button>
+            </header>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.25rem' }}>
+              <div className="glass-panel">
+                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>Ajouter un Exercice Personnalisé</h3>
+                <form onSubmit={handleCreateExercise} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Nom (ex: Pompes Diamant)</label>
+                    <input className="input-field" value={newExName} onChange={e => setNewExName(e.target.value)} required />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Catégorie</label>
+                    <select className="input-field" value={newExCategory} onChange={e => setNewExCategory(e.target.value)}>
+                      <option value="Musculation">Musculation</option>
+                      <option value="Cardio">Cardio</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Muscle Principal</label>
+                    <select className="input-field" onChange={e => setNewExPrimary([e.target.value])}>
+                      <option value="chest">Pectoraux</option>
+                      <option value="triceps">Triceps</option>
+                      <option value="biceps">Biceps</option>
+                      <option value="shoulders">Épaules</option>
+                      <option value="back_lats">Dos</option>
+                      <option value="quadriceps">Quadriceps</option>
+                      <option value="abs">Abdominaux</option>
+                    </select>
+                  </div>
+                  <button type="submit" className="btn btn-primary">Créer l'Exercice</button>
+                </form>
+              </div>
+
+              <div className="glass-panel">
+                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>Exercices Disponibles ({exercisesList.length})</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                  {exercisesList.map(ex => (
+                    <div key={ex.id} style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                        <h4 style={{ fontWeight: 700, fontSize: '0.9rem' }}>{ex.name}</h4>
+                      </div>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{ex.description || 'Exercice configuré'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: COMMUNITY */}
         {activeTab === 'community' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <header>
-              <h1 style={{ fontSize: '1.8rem', fontWeight: 800 }}>Partage des Progressions</h1>
-              <p style={{ color: 'var(--text-secondary)' }}>Découvrez les séances récentes accomplies par vos partenaires d'entraînement.</p>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Partage des Progressions</h1>
             </header>
 
             <div className="glass-panel">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {communityList.map(sess => (
-                  <div key={sess.id} style={{ padding: '1.25rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div key={sess.id} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                      <h4 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.25rem' }}>{sess.title}</h4>
-                      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                        Fait le {new Date(sess.start_time).toLocaleDateString('fr-FR')} • {sess.exercises_done.length} exercices réalisés
+                      <h4 style={{ fontSize: '0.95rem', fontWeight: 700 }}>{sess.title}</h4>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {new Date(sess.start_time).toLocaleDateString('fr-FR')} • {sess.exercises_done.length} exercices
                       </p>
                     </div>
-                    <span className="badge badge-primary">Progression Partagée</span>
                   </div>
                 ))}
               </div>
@@ -806,58 +808,34 @@ export function App() {
           </div>
         )}
 
-        {/* TAB 7: ADMIN DASHBOARD */}
+        {/* TAB 7: ADMIN */}
         {activeTab === 'admin' && currentUser.role === 'admin' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <header>
-              <h1 style={{ fontSize: '1.8rem', fontWeight: 800 }}>Dashboard Administrateur</h1>
-              <p style={{ color: 'var(--text-secondary)' }}>Gestion exclusive des comptes athlètes et surveillance globale.</p>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Dashboard Admin</h1>
             </header>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.25rem' }}>
               <div className="glass-panel">
-                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Créer un Compte Athlète</h3>
-                <form onSubmit={handleCreateUserAdmin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Nom complet</label>
-                    <input className="input-field" value={adminNewName} onChange={e => setAdminNewName(e.target.value)} required />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Email</label>
-                    <input type="email" className="input-field" value={adminNewEmail} onChange={e => setAdminNewEmail(e.target.value)} required />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Mot de passe</label>
-                    <input type="password" className="input-field" value={adminNewPassword} onChange={e => setAdminNewPassword(e.target.value)} required />
-                  </div>
+                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>Créer un Compte Athlète</h3>
+                <form onSubmit={handleCreateUserAdmin} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <input className="input-field" placeholder="Nom complet" value={adminNewName} onChange={e => setAdminNewName(e.target.value)} required />
+                  <input type="email" className="input-field" placeholder="Email" value={adminNewEmail} onChange={e => setAdminNewEmail(e.target.value)} required />
+                  <input type="password" className="input-field" placeholder="Mot de passe" value={adminNewPassword} onChange={e => setAdminNewPassword(e.target.value)} required />
                   <button type="submit" className="btn btn-primary">Créer le Compte</button>
                 </form>
               </div>
 
               <div className="glass-panel">
-                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Tous les Athlètes & Comptes</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--glass-border)', color: 'var(--text-secondary)' }}>
-                      <th style={{ padding: '0.75rem' }}>ID</th>
-                      <th style={{ padding: '0.75rem' }}>Nom</th>
-                      <th style={{ padding: '0.75rem' }}>Email</th>
-                      <th style={{ padding: '0.75rem' }}>Rôle</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {adminUsers.map(u => (
-                      <tr key={u.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                        <td style={{ padding: '0.75rem' }}>{u.id}</td>
-                        <td style={{ padding: '0.75rem', fontWeight: 700 }}>{u.full_name}</td>
-                        <td style={{ padding: '0.75rem' }}>{u.email}</td>
-                        <td style={{ padding: '0.75rem' }}>
-                          <span className={`badge ${u.role === 'admin' ? 'badge-warning' : 'badge-primary'}`}>{u.role}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>Membres Enregistrés</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {adminUsers.map(u => (
+                    <div key={u.id} style={{ padding: '0.6rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                      <span>{u.full_name} ({u.email})</span>
+                      <span className="badge badge-primary">{u.role}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
