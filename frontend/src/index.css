@@ -241,6 +241,7 @@ body {
 }
 
 /* Body Visualizer Muscles */
+/* Muscle Visualizer SVG styling */
 .muscle-group {
   transition: fill 0.3s ease, filter 0.3s ease;
   cursor: pointer;
@@ -254,4 +255,78 @@ body {
 .muscle-group.secondary {
   fill: #ffab00 !important;
   filter: drop-shadow(0 0 5px #ffab00);
+}
+
+/* Mobile Live Workout - Giant Rest Timer & Visual Alarm */
+.rest-timer-box {
+  background: rgba(0, 242, 254, 0.12);
+  border: 2px solid var(--primary-accent);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 0 20px rgba(0, 242, 254, 0.25);
+  transition: var(--transition-fast);
+}
+
+.giant-timer-text {
+  font-size: 2.2rem;
+  font-weight: 900;
+  letter-spacing: 2px;
+  font-family: monospace;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.rest-timer-box.alarm-active {
+  background: rgba(255, 8, 68, 0.25);
+  border-color: var(--secondary-accent);
+  animation: pulse-alarm 1s infinite alternate;
+}
+
+@keyframes pulse-alarm {
+  0% {
+    box-shadow: 0 0 15px rgba(255, 8, 68, 0.4);
+    transform: scale(1);
+  }
+  100% {
+    box-shadow: 0 0 35px rgba(255, 8, 68, 0.85);
+    transform: scale(1.02);
+  }
+}
+
+/* Mobile First - Thumb Buttons & Touch Keypad */
+.btn-thumb {
+  min-height: 48px;
+  min-width: 90px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  border-radius: 10px;
+  touch-action: manipulation;
+}
+
+.num-keypad-input {
+  min-height: 48px;
+  font-size: 1.15rem !important;
+}
+
+@media (max-width: 480px) {
+  .glass-panel {
+    padding: 0.9rem;
+    border-radius: 12px;
+  }
+
+  .main-content {
+    padding: 0.75rem;
+  }
+
+  .giant-timer-text {
+    font-size: 1.75rem;
+  }
+
+  .btn {
+    padding: 0.65rem 1rem;
+  }
 }
