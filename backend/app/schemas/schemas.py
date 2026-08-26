@@ -87,6 +87,8 @@ class SetDetailCreate(BaseModel):
     reps_completed: int = 0
     weight_kg: float = 0.0
     duration_seconds: int = 0
+    distance_km: float = 0.0
+    calories_burned: float = 0.0
     rest_seconds: int = 60
     completed: bool = True
 

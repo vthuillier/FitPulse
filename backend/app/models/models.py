@@ -113,6 +113,8 @@ class WorkoutSetDetail(Base):
     reps_completed: Mapped[int] = mapped_column(Integer, default=0)
     weight_kg: Mapped[float] = mapped_column(Float, default=0.0)
     duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    distance_km: Mapped[float] = mapped_column(Float, default=0.0)
+    calories_burned: Mapped[float] = mapped_column(Float, default=0.0)
     rest_seconds: Mapped[int] = mapped_column(Integer, default=60)
     completed: Mapped[bool] = mapped_column(Boolean, default=True)
 

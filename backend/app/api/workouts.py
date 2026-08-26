@@ -120,6 +120,8 @@ async def record_workout_session(
                 reps_completed=s_in.reps_completed,
                 weight_kg=s_in.weight_kg,
                 duration_seconds=s_in.duration_seconds,
+                distance_km=s_in.distance_km,
+                calories_burned=s_in.calories_burned,
                 rest_seconds=s_in.rest_seconds,
                 completed=s_in.completed
             )

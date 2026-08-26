@@ -87,11 +87,13 @@ async def create_exercise(
             detail="Un exercice avec ce nom existe déjà."
         )
 
+    metric_type = ExerciseMetricType.CARDIO if exercise_in.category == "Cardio" else exercise_in.metric_type
+
     exercise = Exercise(
         name=exercise_in.name,
         description=exercise_in.description,
         category=exercise_in.category,
-        metric_type=exercise_in.metric_type,
+        metric_type=metric_type,
         default_rest_seconds=exercise_in.default_rest_seconds,
         primary_muscles=exercise_in.primary_muscles,
         secondary_muscles=exercise_in.secondary_muscles,
@@ -212,7 +214,7 @@ async def enrich_exercises_catalog(
                             name=name,
                             description=clean_desc[:255],
                             category=cat_name,
-                            metric_type=ExerciseMetricType.REPS_WEIGHT,
+                            metric_type=ExerciseMetricType.CARDIO if cat_name == "Cardio" else ExerciseMetricType.REPS_WEIGHT,
                             default_rest_seconds=60,
                             primary_muscles=muscles_prim,
                             secondary_muscles=muscles_sec,

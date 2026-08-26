@@ -331,6 +331,8 @@ export default function App() {
           reps_completed: item.target_reps || 10,
           weight_kg: item.target_weight_kg || 0,
           duration_seconds: item.target_duration_seconds || 0,
+          distance_km: 0,
+          calories_burned: 0,
           rest_seconds: item.rest_seconds || 60,
           completed: false
         }));
@@ -340,8 +342,8 @@ export default function App() {
       if (exercisesList.length > 0) {
         const firstExId = exercisesList[0].id;
         initialSets[firstExId] = [
-          { set_number: 1, reps_completed: 10, weight_kg: 20, rest_seconds: 60, completed: false },
-          { set_number: 2, reps_completed: 10, weight_kg: 20, rest_seconds: 60, completed: false }
+          { set_number: 1, reps_completed: 10, weight_kg: 20, duration_seconds: 0, distance_km: 0, calories_burned: 0, rest_seconds: 60, completed: false },
+          { set_number: 2, reps_completed: 10, weight_kg: 20, duration_seconds: 0, distance_km: 0, calories_burned: 0, rest_seconds: 60, completed: false }
         ];
       }
     }
@@ -1323,30 +1325,72 @@ export default function App() {
                         {liveSets[exId].map((set, idx) => (
                           <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: set.completed ? 'rgba(0,230,118,0.1)' : 'rgba(255,255,255,0.02)', padding: '0.6rem', borderRadius: '10px', flexWrap: 'wrap' }}>
                             <span style={{ fontSize: '0.9rem', fontWeight: 800, width: '40px' }}>#{set.set_number}</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                              <input 
-                                type="number" 
-                                className="input-field num-keypad-input" 
-                                style={{ width: '65px', padding: '0.5rem', textAlign: 'center', fontWeight: 700 }} 
-                                placeholder="Reps" 
-                                value={set.reps_completed} 
-                                onChange={(e) => updateSetDetail(exId, idx, 'reps_completed', e.target.value)} 
-                              />
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>reps</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                              <input 
-                                type="number" 
-                                step="0.5"
-                                className="input-field num-keypad-input" 
-                                style={{ width: '70px', padding: '0.5rem', textAlign: 'center', fontWeight: 700 }} 
-                                placeholder="Kg" 
-                                value={set.weight_kg} 
-                                onChange={(e) => updateSetDetail(exId, idx, 'weight_kg', e.target.value)} 
-                              />
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>kg</span>
-                            </div>
-                            <button 
+                            {exObj.metric_type === 'cardio' ? (
+                              <>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                  <input
+                                    type="number"
+                                    step="0.5"
+                                    className="input-field num-keypad-input"
+                                    style={{ width: '65px', padding: '0.5rem', textAlign: 'center', fontWeight: 700 }}
+                                    placeholder="Durée"
+                                    value={Math.round((set.duration_seconds / 60) * 10) / 10}
+                                    onChange={(e) => updateSetDetail(exId, idx, 'duration_seconds', Number(e.target.value) * 60)}
+                                  />
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>min</span>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    className="input-field num-keypad-input"
+                                    style={{ width: '65px', padding: '0.5rem', textAlign: 'center', fontWeight: 700 }}
+                                    placeholder="Distance"
+                                    value={set.distance_km}
+                                    onChange={(e) => updateSetDetail(exId, idx, 'distance_km', e.target.value)}
+                                  />
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>km</span>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                  <input
+                                    type="number"
+                                    className="input-field num-keypad-input"
+                                    style={{ width: '65px', padding: '0.5rem', textAlign: 'center', fontWeight: 700 }}
+                                    placeholder="Cal"
+                                    value={set.calories_burned}
+                                    onChange={(e) => updateSetDetail(exId, idx, 'calories_burned', e.target.value)}
+                                  />
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>kcal</span>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                  <input
+                                    type="number"
+                                    className="input-field num-keypad-input"
+                                    style={{ width: '65px', padding: '0.5rem', textAlign: 'center', fontWeight: 700 }}
+                                    placeholder="Reps"
+                                    value={set.reps_completed}
+                                    onChange={(e) => updateSetDetail(exId, idx, 'reps_completed', e.target.value)}
+                                  />
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>reps</span>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                  <input
+                                    type="number"
+                                    step="0.5"
+                                    className="input-field num-keypad-input"
+                                    style={{ width: '70px', padding: '0.5rem', textAlign: 'center', fontWeight: 700 }}
+                                    placeholder="Kg"
+                                    value={set.weight_kg}
+                                    onChange={(e) => updateSetDetail(exId, idx, 'weight_kg', e.target.value)}
+                                  />
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>kg</span>
+                                </div>
+                              </>
+                            )}
+                            <button
                               className={`btn btn-thumb ${set.completed ? 'btn-primary' : 'btn-secondary'}`}
                               style={{ marginLeft: 'auto' }}
                               onClick={() => toggleSetComplete(exId, idx)}
