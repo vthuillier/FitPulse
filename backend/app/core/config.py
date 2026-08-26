@@ -12,9 +12,22 @@ class Settings(BaseSettings):
     
     # DB Configuration
     DATABASE_URL: str = os.getenv(
-        "DATABASE_URL", 
+        "DATABASE_URL",
         "sqlite+aiosqlite:///./fitpulse.db"
     )
+
+    # CORS: comma-separated allowed origins. No wildcard - required for
+    # allow_credentials=True to work in browsers and to avoid exposing
+    # authenticated endpoints to arbitrary origins. Kept as a plain str field
+    # (not list[str]) because pydantic-settings auto-binds list-typed fields
+    # from env as JSON, which breaks a comma-separated value.
+    CORS_ORIGINS_RAW: str = os.getenv(
+        "CORS_ORIGINS", "http://localhost:3000,http://localhost:5173"
+    )
+
+    @property
+    def CORS_ORIGINS(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS_RAW.split(",") if o.strip()]
     
     # Initial Admin Seed Configuration
     FIRST_ADMIN_EMAIL: str = os.getenv("FIRST_ADMIN_EMAIL", "admin@fitpulse.com")
