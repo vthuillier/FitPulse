@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { BodyVisualizer } from './components/BodyVisualizer';
 import { 
-  loginApi, fetchCurrentProfile, fetchExercises, createExerciseApi, 
+  loginApi, fetchCurrentProfile, fetchExercises, createExerciseApi, importExercisesFromWgerApi,
   fetchTemplates, createTemplateApi, fetchWeeklySummary, fetchLastWorkoutByTemplate,
   saveWorkoutSessionApi, fetchMeasurements, createMeasurementApi, 
   fetchCommunityFeed, fetchAllUsersAdmin, createUserAdminApi 
@@ -194,6 +194,16 @@ export function App() {
       setActiveTab('dashboard');
     } catch (err: any) {
       alert("Erreur lors de la sauvegarde : " + err.message);
+    }
+  };
+
+  const handleImportWger = async () => {
+    try {
+      const imported = await importExercisesFromWgerApi();
+      alert(`🎉 ${imported.length} nouveau(x) exercice(s) importé(s) avec succès depuis l'API Wger !`);
+      refreshDashboard();
+    } catch (err: any) {
+      alert("Erreur lors de l'import API : " + err.message);
     }
   };
 
@@ -705,9 +715,14 @@ export function App() {
         {/* TAB 5: EXERCISES DATABASE */}
         {activeTab === 'exercises' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <header>
-              <h1 style={{ fontSize: '1.8rem', fontWeight: 800 }}>Base de Données des Exercices</h1>
-              <p style={{ color: 'var(--text-secondary)' }}>Consultez la liste des exercices configurés ou ajoutez-en des nouveaux.</p>
+            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h1 style={{ fontSize: '1.8rem', fontWeight: 800 }}>Base de Données des Exercices</h1>
+                <p style={{ color: 'var(--text-secondary)' }}>Consultez la liste des exercices configurés, ajoutez-en des nouveaux ou importez-en via l'API publique Wger.</p>
+              </div>
+              <button className="btn btn-primary" onClick={handleImportWger}>
+                🌐 Importer via API Externe (Wger)
+              </button>
             </header>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>

@@ -51,6 +51,18 @@ export async function createExerciseApi(exercise: any) {
   return res.json();
 }
 
+export async function importExercisesFromWgerApi() {
+  const res = await fetch(`${API_URL}/exercises/import-wger`, {
+    method: "POST",
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Erreur lors de l'import depuis l'API Wger");
+  }
+  return res.json();
+}
+
 export async function fetchTemplates() {
   const res = await fetch(`${API_URL}/templates/`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error("Erreur chargement pré-séances");
